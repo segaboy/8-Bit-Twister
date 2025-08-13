@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>TwisterNES — 2-Player Keyboard Chaos</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>TwisterNES</h1>
+      <div class="hint">Drag a single <b>.nes</b> ROM anywhere on the page — it will start for both players. Each match randomizes keybinds.</div>
+    </div>
+    <div class="controls">
+      <button id="randomize">🎲 New Keybinds</button>
+      <button id="start">▶ Start Match</button>
+      <button id="stop">⏹ Stop</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="col p1">
+      <div class="title-row">
+        <h2>Player 1 <span class="badge">Left station</span></h2>
+        <div class="badge">NES A/B + D‑Pad + Start/Select</div>
+      </div>
+      <div class="canvaswrap"><canvas id="screen1" width="256" height="240"></canvas></div>
+      <div class="keys" id="keys1"></div>
+    </section>
+
+    <section class="col p2">
+      <div class="title-row">
+        <h2>Player 2 <span class="badge">Right station</span></h2>
+        <div class="badge">Same ROM, independent input</div>
+      </div>
+      <div class="canvaswrap"><canvas id="screen2" width="256" height="240"></canvas></div>
+      <div class="keys" id="keys2"></div>
+    </section>
+
+    <div class="footer">
+      <div class="dropzone">💾 Drop a <b>.nes</b> file here to load both instances.</div>
+      <div class="row">
+        <div class="small">Match length</div>
+        <select id="duration">
+          <option value="60">1:00</option>
+          <option value="120" selected>2:00</option>
+          <option value="180">3:00</option>
+          <option value="300">5:00</option>
+        </select>
+        <div class="timer" id="timer">02:00</div>
+      </div>
+    </div>
+  </main>
+
+  <div class="overlay" id="results">
+    <div class="modal">
+      <h3>⏱ Time!</h3>
+      <p>Take a look at each screen and decide the winner (score/level).<br/><span class="small">Auto‑scoring is game‑specific; we can wire it per ROM later.</span></p>
+      <div class="row" style="margin-top:12px">
+        <button id="newRound">🔁 New Round (keep ROM)</button>
+        <button id="close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JSNES from CDN (no local jsnes.min.js needed) -->
+  <script src="https://unpkg.com/jsnes/dist/jsnes.min.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
