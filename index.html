@@ -26,6 +26,10 @@
         <div class="badge">NES A/B + D‑Pad + Start/Select</div>
       </div>
       <div class="canvaswrap"><canvas id="screen1" width="256" height="240"></canvas></div>
+      <div class="audio">
+        <button id="mute1" type="button" aria-label="Mute Player 1">🔊</button>
+        <input id="vol1" type="range" min="0" max="1" step="0.01" value="0.6" />
+      </div>
       <div class="keys" id="keys1"></div>
     </section>
 
@@ -35,6 +39,10 @@
         <div class="badge">Same ROM, independent input</div>
       </div>
       <div class="canvaswrap"><canvas id="screen2" width="256" height="240"></canvas></div>
+      <div class="audio">
+        <button id="mute2" type="button" aria-label="Mute Player 2">🔊</button>
+        <input id="vol2" type="range" min="0" max="1" step="0.01" value="0.6" />
+      </div>
       <div class="keys" id="keys2"></div>
     </section>
 
