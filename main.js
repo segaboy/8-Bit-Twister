@@ -1,15 +1,71 @@
-// --- HARD GUARD: stop the browser from opening/downloading files on drop anywhere ---
+// --- HARD GUARD: block the browser's default file-open/download on drop anywhere ---
 (function hardBlockDefaultDnD(){
-  const guard = (e) => {
-    const dt = e.dataTransfer;
-    const isFile = dt && (dt.files?.length || (dt.types && [...dt.types].includes('Files')));
-    if (isFile) e.preventDefault(); // don't stopPropagation; let our handlers run
+  const cancel = (e) => {
+    // Always prevent default so the browser never navigates/downloads
+    if (e && e.dataTransfer) {
+      e.preventDefault();
+      // make the cursor show "copy" when dragging files
+      try { e.dataTransfer.dropEffect = 'copy'; } catch {}
+    }
   };
   ['dragenter','dragover','dragleave','drop'].forEach(type => {
-    window.addEventListener(type, guard, { capture: true, passive: false });
-    document.addEventListener(type, guard, { capture: true, passive: false });
+    // Capture phase so we beat any other listener
+    window.addEventListener(type, cancel,   { capture: true, passive: false });
+    document.addEventListener(type, cancel, { capture: true, passive: false });
   });
 })();
+
+
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+class NesAudio {
+  constructor(ctx, initialVol = 0.6) {
+    this.ctx = ctx;
+    this.volume = initialVol;
+    this.muted = false;
+
+    this.gain = ctx.createGain();
+    this.gain.gain.value = initialVol;
+
+    // ScriptProcessor: simplest cross-browser way (AudioWorklet is nicer but heavier)
+    this.node = ctx.createScriptProcessor(2048, 0, 2);
+    this.left = [];
+    this.right = [];
+    this.node.onaudioprocess = (e) => {
+      const L = e.outputBuffer.getChannelData(0);
+      const R = e.outputBuffer.getChannelData(1);
+      for (let i = 0; i < L.length; i++) {
+        L[i] = this.left.length ? this.left.shift() : 0;
+        R[i] = this.right.length ? this.right.shift() : 0;
+      }
+      // keep queues bounded so they don’t grow forever if tab throttles
+      const MAX = 44100; // ~1s of audio
+      if (this.left.length > MAX)  this.left.splice(0, this.left.length - MAX);
+      if (this.right.length > MAX) this.right.splice(0, this.right.length - MAX);
+    };
+
+    this.node.connect(this.gain);
+    this.gain.connect(ctx.destination);
+  }
+  push(l, r) {
+    // JSNES gives floats -1..1
+    this.left.push(l);
+    this.right.push(r);
+  }
+  setVolume(v) {
+    this.volume = v;
+    if (!this.muted) this.gain.gain.value = v;
+  }
+  setMuted(m) {
+    this.muted = m;
+    this.gain.gain.value = m ? 0 : this.volume;
+  }
+}
+
 
 // ===== 8-Bit Twister (core logic) =====
 
@@ -57,7 +113,7 @@ const keymapP2 = new Map(); // code -> btn (for emulator #2, controller 1)
 let frames1 = 0, frames2 = 0; // debug counters
 
 // ---- NES + render
-function makeNes(canvasSel) {
+function makeNes(canvasSel, audioSink) {
   const canvas = $(canvasSel);
   const ctx = canvas.getContext('2d');
   const imageData = ctx.createImageData(256,240);
@@ -74,12 +130,11 @@ function makeNes(canvasSel) {
       ctx.putImageData(imageData,0,0);
       if (nes === nes1) frames1++; else frames2++;
     },
+    onAudioSample: (l, r) => { if (audioSink) audioSink.push(l, r); },
   });
 
-  // Fill black immediately
   ctx.fillStyle = '#000';
   ctx.fillRect(0,0,256,240);
-
   return nes;
 }
 
@@ -187,23 +242,47 @@ async function loadRomFromFile(file) {
 // ---- DnD guards + dropzone + click-to-choose
 function setupDnD() {
   const dz = document.querySelector('.dropzone');
-  ['dragenter','dragover'].forEach(ev => {
-    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('dragging'); });
-  });
-  ['dragleave','drop'].forEach(ev => {
-    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('dragging'); });
-  });
-  dz.addEventListener('drop', async e => {
-    const file = e.dataTransfer.files?.[0];
-    if (file) await loadRomFromFile(file);
+  if (!dz) return;
+
+  const onOver = (e) => {
+    e.preventDefault();
+    dz.classList.add('dragging');
+    try { if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; } catch {}
+  };
+  const onLeave = (e) => {
+    e.preventDefault();
+    dz.classList.remove('dragging');
+  };
+
+  dz.addEventListener('dragenter', onOver);
+  dz.addEventListener('dragover',  onOver);
+  dz.addEventListener('dragleave', onLeave);
+  dz.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dz.classList.remove('dragging');
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+
+    // 🔊 resume audio on user gesture
+    if (typeof getAudioCtx === 'function') {
+      const ctx = getAudioCtx();
+      if (ctx && ctx.state !== 'running') { try { await ctx.resume(); } catch {} }
+    }
+    await loadRomFromFile(file);
   });
 
-  // Accept drop anywhere too (convenience)
+  // Optional convenience: allow drop anywhere on the page
   window.addEventListener('drop', async (e) => {
     const file = e.dataTransfer?.files?.[0];
-    if (file) await loadRomFromFile(file);
-  });
+    if (!file) return;
+    if (typeof getAudioCtx === 'function') {
+      const ctx = getAudioCtx();
+      if (ctx && ctx.state !== 'running') { try { await ctx.resume(); } catch {} }
+    }
+    await loadRomFromFile(file);
+  }, { passive:false });
 }
+
 function setupChooserFallback() {
   const input = document.createElement('input');
   input.type = 'file';
@@ -257,6 +336,13 @@ function hideResults(){ $('#results').classList.remove('show'); }
 // ---- Match controls
 function startMatch() {
   if (!gameBytes) { alert('Drop a .nes ROM first.'); return; }
+
+  // 🔊 Unlock/resume Web Audio (autoplay policy requires a user gesture)
+  if (typeof getAudioCtx === 'function') {
+    const ctx = getAudioCtx();
+    if (ctx && ctx.state !== 'running') { ctx.resume(); }
+  }
+
   if (!running) {
     running = true;
     startLoops();
@@ -264,12 +350,10 @@ function startMatch() {
 
     // Debug: check frames are advancing
     frames1 = 0; frames2 = 0;
-    setTimeout(() => {
-      console.log('FPS ~1s:', { p1: frames1, p2: frames2 });
-      frames1 = 0; frames2 = 0;
-    }, 1000);
+    setTimeout(() => console.log('FPS ~1s:', { p1: frames1, p2: frames2 }), 1000);
   }
 }
+
 function stopMatch() { running = false; stopLoops(); }
 
 // ---- Bootstrap
@@ -277,8 +361,24 @@ function init() {
   setupChooserFallback();
   setupDnD();
 
-  nes1 = makeNes('#screen1');
-  nes2 = makeNes('#screen2');
+  const ctx = getAudioCtx();           // create (but not playing yet)
+  const audio1 = new NesAudio(ctx, 0.6);
+  const audio2 = new NesAudio(ctx, 0.6);
+
+  nes1 = makeNes('#screen1', audio1);
+  nes2 = makeNes('#screen2', audio2);
+
+  // Volume / mute UI
+  $('#vol1').addEventListener('input', e => audio1.setVolume(parseFloat(e.target.value)));
+  $('#vol2').addEventListener('input', e => audio2.setVolume(parseFloat(e.target.value)));
+  $('#mute1').addEventListener('click', () => {
+    audio1.setMuted(!audio1.muted);
+    $('#mute1').textContent = audio1.muted ? '🔇' : '🔊';
+  });
+  $('#mute2').addEventListener('click', () => {
+    audio2.setMuted(!audio2.muted);
+    $('#mute2').textContent = audio2.muted ? '🔇' : '🔊';
+  });
 
   randomizeKeybinds();
 
@@ -289,4 +389,5 @@ function init() {
   $('#newRound').onclick  = async () => { hideResults(); randomizeKeybinds(); await sleep(50); startMatch(); };
   $('#close').onclick     = () => hideResults();
 }
+
 document.addEventListener('DOMContentLoaded', init);

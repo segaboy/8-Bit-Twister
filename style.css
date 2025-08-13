@@ -54,6 +54,7 @@ button {
   background:#131828; color:var(--ink); border:1px solid #2a3046;
   padding:10px 14px; border-radius:10px; cursor:pointer; font-weight:600;
 }
+
 button:hover { border-color:#3a4160 }
 .timer { font-variant-numeric: tabular-nums; font-size:28px; letter-spacing:1px }
 .dropzone {
@@ -76,6 +77,9 @@ button:hover { border-color:#3a4160 }
 }
 .row { display:flex; gap:12px; align-items:center; justify-content:space-between }
 .small { font-size:12px; color:var(--muted) }
+
+.audio { display:flex; align-items:center; gap:8px; margin-top:8px }
+.audio input[type="range"] { width: 160px }
 
 .dropzone.dragging {
   border-color: var(--accent);
