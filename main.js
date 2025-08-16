@@ -16,10 +16,66 @@
 })();
 
 
+// ---- Audio: single mixer for both emulators ----
 let audioCtx = null;
 function getAudioCtx() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!audioCtx) {
+    // Try to match NES core output rate (often ~44100)
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+    } catch {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  }
   return audioCtx;
+}
+
+class NesMixer {
+  constructor(ctx, bufferSize = 1024) {
+    this.ctx = ctx;
+    this.inputs = []; // { left:[], right:[], gain: number, muted: bool }
+    this.node = ctx.createScriptProcessor(bufferSize, 0, 2);
+    this.master = ctx.createGain();
+    this.master.gain.value = 0.9;
+
+    this.node.onaudioprocess = (e) => {
+      const L = e.outputBuffer.getChannelData(0);
+      const R = e.outputBuffer.getChannelData(1);
+      const n = L.length;
+      for (let i = 0; i < n; i++) {
+        let mixL = 0, mixR = 0, active = 0;
+        for (const ch of this.inputs) {
+          if (ch.muted) continue;
+          const sl = ch.left.length ? ch.left.shift() : 0;
+          const sr = ch.right.length ? ch.right.shift() : 0;
+          mixL += sl * ch.gain;
+          mixR += sr * ch.gain;
+          active++;
+        }
+        // gentle limiting/attenuation (avoid clipping when both are loud)
+        // -6 dB per two inputs; tweak if you like
+        if (active > 1) { mixL *= 0.7; mixR *= 0.7; }
+        // soft clip to [-1,1]
+        L[i] = Math.max(-1, Math.min(1, mixL));
+        R[i] = Math.max(-1, Math.min(1, mixR));
+      }
+      // Keep queues bounded (~1s safety)
+      for (const ch of this.inputs) {
+        const MAX = this.ctx.sampleRate;
+        if (ch.left.length > MAX)  ch.left.splice(0, ch.left.length - MAX);
+        if (ch.right.length > MAX) ch.right.splice(0, ch.right.length - MAX);
+      }
+    };
+
+    this.node.connect(this.master);
+    this.master.connect(ctx.destination);
+  }
+
+  createInput(initialGain = 0.5) {
+    const ch = { left: [], right: [], gain: initialGain, muted: false };
+    this.inputs.push(ch);
+    return ch;
+  }
 }
 
 class NesAudio {
@@ -113,7 +169,7 @@ const keymapP2 = new Map(); // code -> btn (for emulator #2, controller 1)
 let frames1 = 0, frames2 = 0; // debug counters
 
 // ---- NES + render
-function makeNes(canvasSel, audioSink) {
+function makeNes(canvasSel, audioInput) {
   const canvas = $(canvasSel);
   const ctx = canvas.getContext('2d');
   const imageData = ctx.createImageData(256,240);
@@ -130,13 +186,18 @@ function makeNes(canvasSel, audioSink) {
       ctx.putImageData(imageData,0,0);
       if (nes === nes1) frames1++; else frames2++;
     },
-    onAudioSample: (l, r) => { if (audioSink) audioSink.push(l, r); },
+    onAudioSample: (l, r) => {
+      if (!audioInput) return;
+      audioInput.left.push(l);
+      audioInput.right.push(r);
+    },
   });
 
   ctx.fillStyle = '#000';
   ctx.fillRect(0,0,256,240);
   return nes;
 }
+
 
 function startLoops() {
   const step1 = () => { if (nes1) nes1.frame(); loopId1 = requestAnimationFrame(step1); };
@@ -361,23 +422,24 @@ function init() {
   setupChooserFallback();
   setupDnD();
 
-  const ctx = getAudioCtx();           // create (but not playing yet)
-  const audio1 = new NesAudio(ctx, 0.6);
-  const audio2 = new NesAudio(ctx, 0.6);
+  const ctx = getAudioCtx();                    // one shared context
+  const mixer = new NesMixer(ctx);              // one shared mixer
+  const chan1 = mixer.createInput(0.6);         // P1 audio channel
+  const chan2 = mixer.createInput(0.6);         // P2 audio channel
 
-  nes1 = makeNes('#screen1', audio1);
-  nes2 = makeNes('#screen2', audio2);
+  nes1 = makeNes('#screen1', chan1);
+  nes2 = makeNes('#screen2', chan2);
 
-  // Volume / mute UI
-  $('#vol1').addEventListener('input', e => audio1.setVolume(parseFloat(e.target.value)));
-  $('#vol2').addEventListener('input', e => audio2.setVolume(parseFloat(e.target.value)));
-  $('#mute1').addEventListener('click', () => {
-    audio1.setMuted(!audio1.muted);
-    $('#mute1').textContent = audio1.muted ? '🔇' : '🔊';
+  // Hook your existing volume/mute UI (if you added it)
+  const vol1 = $('#vol1'), vol2 = $('#vol2');
+  const mute1 = $('#mute1'), mute2 = $('#mute2');
+  if (vol1) vol1.addEventListener('input', e => chan1.gain = parseFloat(e.target.value));
+  if (vol2) vol2.addEventListener('input', e => chan2.gain = parseFloat(e.target.value));
+  if (mute1) mute1.addEventListener('click', () => {
+    chan1.muted = !chan1.muted; mute1.textContent = chan1.muted ? '🔇' : '🔊';
   });
-  $('#mute2').addEventListener('click', () => {
-    audio2.setMuted(!audio2.muted);
-    $('#mute2').textContent = audio2.muted ? '🔇' : '🔊';
+  if (mute2) mute2.addEventListener('click', () => {
+    chan2.muted = !chan2.muted; mute2.textContent = chan2.muted ? '🔇' : '🔊';
   });
 
   randomizeKeybinds();

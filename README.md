@@ -2,6 +2,8 @@
 
 > **Twister for your fingers.** Two NES games side-by-side, one keyboard, and **randomized keybinds** every round. Can you out-contort your opponent before the timer hits zero?
 
+![8-Bit Twister gameplay screenshot](assets/screenshot.png)
+
 ## Why it’s awesome
 
 * 🎮 **Two emulators at once** — same ROM boots in both panes for a fair race.
