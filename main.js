@@ -333,8 +333,14 @@ async function loadRomFromFile(file) {
   nes1.frame(); nes2.frame();
 
   randomizeKeybinds();
-  if (!running) startMatch();
-  console.log('ROM loaded:', file.name, 'bytes:', u8.length);
+
+  // Do NOT auto-start — let players study their keys first.
+  // Reset the match timer display to the selected duration.
+  const dur = parseInt($('#duration').value, 10);
+  $('#timer').textContent = fmt(dur);
+
+  console.log('ROM ready. Review keys, then click “Start Match”.');
+
 }
 
 // ---- DnD guards + dropzone + click-to-choose
