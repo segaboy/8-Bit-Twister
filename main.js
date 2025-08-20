@@ -102,44 +102,63 @@ class RingBuffer {
   }
 }
 
+// ---- Audio: single mixer with ring buffers + per-input panning ----
 class NesMixer {
   constructor(ctx, bufferSize = 2048) {
     this.ctx = ctx;
-    this.inputs = []; // { left: RingBuffer, right: RingBuffer, gain: number, muted: bool }
+    this.inputs = []; // { left: RingBuffer, right: RingBuffer, gain: number, muted: bool, pan: -1..+1 }
     this.node = ctx.createScriptProcessor(bufferSize, 0, 2);
     this.master = ctx.createGain();
-    this.master.gain.value = 0.8; // headroom to avoid clipping
+    this.master.gain.value = 0.85; // headroom
 
     this.node.onaudioprocess = (e) => {
       const L = e.outputBuffer.getChannelData(0);
       const R = e.outputBuffer.getChannelData(1);
       const n = L.length;
       for (let i = 0; i < n; i++) {
-        let mixL = 0, mixR = 0, active = 0;
+        let outL = 0, outR = 0;
         for (const ch of this.inputs) {
           if (ch.muted) continue;
-          mixL += ch.left.shift() * ch.gain;
-          mixR += ch.right.shift() * ch.gain;
-          active++;
+
+          // Pull one sample from each ring buffer (NES is effectively mono; JSNES gives L/R)
+          const sl = ch.left.shift();
+          const sr = ch.right.shift();
+          const mono = 0.5 * (sl + sr) * ch.gain;  // treat as mono, then pan
+
+          // Equal-power pan (-1=hard left, +1=hard right, 0=center)
+          const angle = (ch.pan + 1) * (Math.PI / 4); // -1->0, 0->π/4, +1->π/2
+          const gL = Math.cos(angle);
+          const gR = Math.sin(angle);
+
+          outL += mono * gL;
+          outR += mono * gR;
         }
-        if (active > 1) { mixL *= 0.7; mixR *= 0.7; } // attenuate when both loud
-        // soft clip
-        L[i] = Math.max(-1, Math.min(1, mixL));
-        R[i] = Math.max(-1, Math.min(1, mixR));
+
+        // Soft clip
+        L[i] = Math.max(-1, Math.min(1, outL));
+        R[i] = Math.max(-1, Math.min(1, outR));
       }
     };
+
     this.node.connect(this.master);
     this.master.connect(ctx.destination);
   }
 
-  createInput(initialGain = 0.45) {
-    // ~2 seconds of headroom per channel to ride out brief hiccups
-    const cap = Math.max(16384, (this.ctx.sampleRate * 2) | 0);
-    const ch = { left: new RingBuffer(cap), right: new RingBuffer(cap), gain: initialGain, muted: false };
+  // pan ∈ [-1, +1]  (-1=left, 0=center, +1=right)
+  createInput(initialGain = 0.5, pan = 0) {
+    const cap = Math.max(16384, (this.ctx.sampleRate * 2) | 0); // ~2s per channel
+    const ch = {
+      left: new RingBuffer(cap),
+      right: new RingBuffer(cap),
+      gain: initialGain,
+      muted: false,
+      pan
+    };
     this.inputs.push(ch);
     return ch;
   }
 }
+
 
 // ---- NES + render
 function makeNes(canvasSel, audioInput) {
@@ -399,8 +418,8 @@ function init() {
 
   const ctx = getAudioCtx();                 // one shared context
   const mixer = new NesMixer(ctx, 2048);     // raise to 4096 if your CPU is slow
-  const chan1 = mixer.createInput(0.45);
-  const chan2 = mixer.createInput(0.45);
+  const chan1 = mixer.createInput(0.5, -1); // left emulator -> hard LEFT
+  const chan2 = mixer.createInput(0.5, +1); // right emulator -> hard RIGHT
 
   nes1 = makeNes('#screen1', chan1);
   nes2 = makeNes('#screen2', chan2);
