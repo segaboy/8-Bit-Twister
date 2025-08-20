@@ -25,6 +25,12 @@ if (!window.jsnes) {
   alert('JSNES failed to load. Ensure jsnes.min.js is included BEFORE main.js in index.html.');
 }
 
+// --- Fixed timestep for 60Hz emulation ---
+const FRAME_MS = 1000 / 60;
+let t1Last = 0, t1Acc = 0;
+let t2Last = 0, t2Acc = 0;
+
+
 // Key pool (KeyboardEvent.code)
 const KEY_CODES = [
   'KeyQ','KeyW','KeyE','KeyR','KeyT','KeyY','KeyU','KeyI','KeyO','KeyP',
@@ -193,14 +199,52 @@ function makeNes(canvasSel, audioInput) {
 }
 
 function startLoops() {
-  const step1 = () => { if (nes1) nes1.frame(); loopId1 = requestAnimationFrame(step1); };
-  const step2 = () => { if (nes2) nes2.frame(); loopId2 = requestAnimationFrame(step2); };
-  if (!loopId1) step1();
-  if (!loopId2) step2();
+  // NES #1
+  if (!loopId1) {
+    const step1 = (now) => {
+      if (!running) { loopId1 = null; return; }
+      if (!t1Last) t1Last = now;
+      t1Acc += now - t1Last;
+      t1Last = now;
+
+      // Run at most a few catch-up frames to avoid spikes after tab throttling
+      let steps = 0;
+      while (t1Acc >= FRAME_MS && steps < 3) {
+        nes1.frame();
+        t1Acc -= FRAME_MS;
+        steps++;
+      }
+      loopId1 = requestAnimationFrame(step1);
+    };
+    loopId1 = requestAnimationFrame(step1);
+  }
+
+  // NES #2
+  if (!loopId2) {
+    const step2 = (now) => {
+      if (!running) { loopId2 = null; return; }
+      if (!t2Last) t2Last = now;
+      t2Acc += now - t2Last;
+      t2Last = now;
+
+      let steps = 0;
+      while (t2Acc >= FRAME_MS && steps < 3) {
+        nes2.frame();
+        t2Acc -= FRAME_MS;
+        steps++;
+      }
+      loopId2 = requestAnimationFrame(step2);
+    };
+    loopId2 = requestAnimationFrame(step2);
+  }
 }
+
 function stopLoops() {
   if (loopId1) { cancelAnimationFrame(loopId1); loopId1 = null; }
   if (loopId2) { cancelAnimationFrame(loopId2); loopId2 = null; }
+  // reset timers so next start doesn't inherit stale deltas
+  t1Last = t1Acc = 0;
+  t2Last = t2Acc = 0;
 }
 
 // ---- Key randomization + legend
