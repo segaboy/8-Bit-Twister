@@ -411,6 +411,23 @@ function stopMatch() {
   if (timerId) { clearInterval(timerId); timerId = null; }
 }
 
+// Map slider value -> linear gain (0..1), regardless of slider range
+function sliderToGain(el) {
+  const min = parseFloat(el.min || '0');
+  const max = parseFloat(el.max || '1');
+  const val = parseFloat(el.value || String(min));
+  if (max === min) return 0;
+  return (val - min) / (max - min);
+}
+
+// Set a slider's knob to reflect a given gain (0..1), respecting its range
+function setSliderFromGain(el, gain) {
+  const min = parseFloat(el.min || '0');
+  const max = parseFloat(el.max || '1');
+  const clamped = Math.max(0, Math.min(1, gain));
+  el.value = String(min + clamped * (max - min));
+}
+
 // ---- Bootstrap
 function init() {
   setupChooserFallback();
@@ -420,6 +437,24 @@ function init() {
   const mixer = new NesMixer(ctx, 2048);     // raise to 4096 if your CPU is slow
   const chan1 = mixer.createInput(0.5, -1); // left emulator -> hard LEFT
   const chan2 = mixer.createInput(0.5, +1); // right emulator -> hard RIGHT
+
+    // 🔊 Volume sliders → per-emulator gain
+  const vol1 = document.getElementById('vol1');
+  const vol2 = document.getElementById('vol2');
+
+  if (vol1) {
+    setSliderFromGain(vol1, chan1.gain); // sync knob to initial
+    const update1 = () => { chan1.gain = sliderToGain(vol1); };
+    vol1.addEventListener('input',  update1);
+    vol1.addEventListener('change', update1); // Safari fallback
+  }
+
+  if (vol2) {
+    setSliderFromGain(vol2, chan2.gain);
+    const update2 = () => { chan2.gain = sliderToGain(vol2); };
+    vol2.addEventListener('input',  update2);
+    vol2.addEventListener('change', update2);
+  }
 
   nes1 = makeNes('#screen1', chan1);
   nes2 = makeNes('#screen2', chan2);
