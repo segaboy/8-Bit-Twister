@@ -437,8 +437,31 @@ function startTimer(seconds) {
 function showResults(){ $('#results').classList.add('show'); }
 function hideResults(){ $('#results').classList.remove('show'); }
 
+const PRESTART_SEC = 10; // change to 0 to disable the countdown
+
+async function preStartCountdown(seconds = PRESTART_SEC) {
+  if (!seconds) return;
+  const startBtn = $('#start');
+  const timerEl  = $('#timer');
+  const originalBtn = startBtn?.textContent;
+  const originalTimer = timerEl?.textContent;
+
+  if (startBtn) startBtn.disabled = true;
+
+  for (let i = seconds; i > 0; i--) {
+    if (timerEl) timerEl.textContent = `Start in ${i}…`;
+    await sleep(1000);
+  }
+
+  if (startBtn) startBtn.disabled = false;
+  // restore timer to full match duration just before starting
+  const dur = parseInt($('#duration').value, 10);
+  if (timerEl) timerEl.textContent = fmt(dur);
+}
+
+
 // ---- Match controls
-function startMatch() {
+async function startMatch() {
   if (!gameBytes) { alert('Drop a .nes ROM first.'); return; }
 
   // 🔊 Ensure audio is unlocked on user gesture
@@ -446,15 +469,19 @@ function startMatch() {
   if (ctx && ctx.state !== 'running') { ctx.resume(); }
 
   if (!running) {
+    // Let players study the keys first
+    await preStartCountdown();   // uses PRESTART_SEC (now 10s)
+
     running = true;
     startLoops();
     startTimer(parseInt($('#duration').value, 10));
 
-    // Debug: check frames are advancing
+    // (optional) debug
     frames1 = 0; frames2 = 0;
     setTimeout(() => console.log('FPS ~1s:', { p1: frames1, p2: frames2 }), 1000);
   }
 }
+
 function stopMatch() {
   running = false;
   stopLoops();
