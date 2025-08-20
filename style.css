@@ -66,6 +66,33 @@ button:hover { border-color:#3a4160 }
   display:flex; gap:16px; align-items:center; justify-content:space-between;
   padding:12px 20px; background:#121625; border:1px solid #242a3f; border-radius:14px
 }
+.footer-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;   /* right-align the stack */
+  gap: 6px;
+}
+
+.credits {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.credits .icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  opacity: .85;
+  transition: opacity .15s ease;
+  color: var(--ink);       /* inherits for SVG fill via currentColor */
+}
+
+.credits .icon:hover { opacity: 1; }
+.credits .icon svg { width: 100%; height: 100%; display: block; }
+
 .overlay {
   position:fixed; inset:0; display:none; align-items:center; justify-content:center;
   background:rgba(0,0,0,.55)
